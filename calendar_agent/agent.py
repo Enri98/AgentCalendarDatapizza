@@ -24,8 +24,9 @@ def create_calendar_agent():
         "Rules:\n"
         "1. Never invent event IDs. Only use IDs returned by tools.\n"
         "2. Use tools for all CRUD operations (list, add, update, delete).\n"
-        "3. If a time range or event ID is missing or ambiguous, ask a clarifying question.\n"
-        "4. Be concise in your responses."
+        "3. If a time range or event ID is missing or ambiguous, ask a concise clarifying question.\n"
+        "4. If the user refers to events by title for update/delete, first call list_events for the inferred range to obtain IDs; never guess IDs.\n"
+        "5. Be concise in your responses."
     )
     
     agent = Agent(

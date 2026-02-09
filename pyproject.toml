@@ -8,6 +8,7 @@ dependencies = [
     "datapizza-ai",
     "datapizza-ai-clients-google",
     "python-dotenv",
+    "tzdata",
 ]
 
 [project.optional-dependencies]
