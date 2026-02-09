@@ -31,7 +31,7 @@ def main():
             now_rome = datetime.now(ZoneInfo("Europe/Rome"))
             context = f"[CURRENT_TIME_ROME={now_rome.isoformat()}] "
             response = agent.run(context + user_input)
-            print(f"\nAssistant: {response}")
+            print(f"\nAssistant: {response.text}")
         except Exception as e:
             print(f"\nError: {e}")
     else:
