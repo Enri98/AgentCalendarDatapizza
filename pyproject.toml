@@ -1,0 +1,23 @@
+[project]
+name = "calendar-assistant"
+version = "0.1.0"
+description = "A local Calendar Assistant using Datapizza AI and Gemini"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "datapizza-ai",
+    "datapizza-ai-clients-google",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+calendar-agent = "calendar_agent.__main__:main"
