@@ -1,7 +1,10 @@
 import sqlite3
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from datapizza.tools import tool
+
+ROME_TZ = ZoneInfo("Europe/Rome")
 
 def _get_db_path() -> str:
     return os.getenv("CALENDAR_DB_PATH", "./data/calendar.db")
@@ -12,6 +15,17 @@ def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
+
+def _parse_iso_rome(s: str) -> datetime:
+    """
+    Parses an ISO-8601 string. 
+    If naive, assumes Europe/Rome. 
+    If aware, converts to Europe/Rome.
+    """
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=ROME_TZ)
+    return dt.astimezone(ROME_TZ)
 
 def init_db() -> None:
     with _connect() as conn:
@@ -27,12 +41,15 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             )
         """)
+        # One-time cleanup: Delete all rows to ensure timezone consistency
+        conn.execute("DELETE FROM events")
 
 def seed_db() -> None:
     with _connect() as conn:
         count = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
         if count == 0:
-            now = datetime.now().isoformat()
+            now = datetime.now(ROME_TZ).isoformat()
+            # Seeding with normalized Rome TZ timestamps
             conn.execute("""
                 INSERT INTO events (title, start_ts, end_ts, location, notes, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -48,8 +65,8 @@ def list_events(start_iso: str, end_iso: str) -> str:
         end_iso: End of the range in ISO 8601 format.
     """
     try:
-        datetime.fromisoformat(start_iso)
-        datetime.fromisoformat(end_iso)
+        s_norm = _parse_iso_rome(start_iso).isoformat()
+        e_norm = _parse_iso_rome(end_iso).isoformat()
     except ValueError:
         return "Error: Invalid ISO format for start or end time."
 
@@ -60,7 +77,7 @@ def list_events(start_iso: str, end_iso: str) -> str:
             FROM events 
             WHERE start_ts < ? AND end_ts > ?
             ORDER BY start_ts ASC
-        """, (end_iso, start_iso)).fetchall()
+        """, (e_norm, s_norm)).fetchall()
         
         if not rows:
             return "No events found in this range."
@@ -68,6 +85,7 @@ def list_events(start_iso: str, end_iso: str) -> str:
         lines = []
         for r in rows:
             loc = f" @ {r['location']}" if r['location'] else ""
+            # Display normalized strings consistently
             lines.append(f"[{r['id']}] {r['start_ts']}–{r['end_ts']} | {r['title']}{loc}")
         return "\n".join(lines)
 
@@ -84,19 +102,22 @@ def add_event(title: str, start_iso: str, end_iso: str, location: str = "", note
         notes: Optional notes for the event.
     """
     try:
-        s = datetime.fromisoformat(start_iso)
-        e = datetime.fromisoformat(end_iso)
-        if s >= e:
+        dt_s = _parse_iso_rome(start_iso)
+        dt_e = _parse_iso_rome(end_iso)
+        if dt_s >= dt_e:
             return "Error: Start time must be before end time."
+        
+        start_iso_norm = dt_s.isoformat()
+        end_iso_norm = dt_e.isoformat()
     except ValueError:
         return "Error: Invalid ISO format."
 
-    now = datetime.now().isoformat()
+    now = datetime.now(ROME_TZ).isoformat()
     with _connect() as conn:
         cursor = conn.execute("""
             INSERT INTO events (title, start_ts, end_ts, location, notes, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (title, start_iso, end_iso, location, notes, now, now))
+        """, (title, start_iso_norm, end_iso_norm, location, notes, now, now))
         return f"Event added successfully with ID: {cursor.lastrowid}"
 
 @tool
@@ -132,20 +153,31 @@ def update_event(
         if not event:
             return f"Error: Event with ID {event_id} not found."
             
-        new_start = start_iso or event["start_ts"]
-        new_end = end_iso or event["end_ts"]
-        if datetime.fromisoformat(new_start) >= datetime.fromisoformat(new_end):
-            return "Error: Updated start time must be before updated end time."
+        new_start_iso = start_iso or event["start_ts"]
+        new_end_iso = end_iso or event["end_ts"]
+        
+        try:
+            dt_s = _parse_iso_rome(new_start_iso)
+            dt_e = _parse_iso_rome(new_end_iso)
+            if dt_s >= dt_e:
+                return "Error: Updated start time must be before updated end time."
+            
+            # Update fields with normalized strings if they were provided
+            if "start_iso" in fields: fields["start_iso"] = dt_s.isoformat()
+            if "end_iso" in fields: fields["end_iso"] = dt_e.isoformat()
+        except ValueError:
+            return "Error: Invalid ISO format in update."
 
         update_sqls = []
         params = []
         for k, v in fields.items():
-            if k == "start_iso": k = "start_ts"
-            if k == "end_iso": k = "end_ts"
-            update_sqls.append(f"{k} = ?")
+            col_name = k
+            if k == "start_iso": col_name = "start_ts"
+            if k == "end_iso": col_name = "end_ts"
+            update_sqls.append(f"{col_name} = ?")
             params.append(v)
         
-        params.append(datetime.now().isoformat())
+        params.append(datetime.now(ROME_TZ).isoformat())
         params.append(event_id)
         
         conn.execute(f"UPDATE events SET {', '.join(update_sqls)}, updated_at = ? WHERE id = ?", params)

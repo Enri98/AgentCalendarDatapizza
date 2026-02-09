@@ -7,6 +7,12 @@ from .tools import list_events, add_event, update_event, delete_events
 
 load_dotenv()
 
+# Silence Datapizza step-by-step logging by default
+if "DATAPIZZA_LOG_LEVEL" not in os.environ:
+    os.environ["DATAPIZZA_LOG_LEVEL"] = "WARN"
+if "DATAPIZZA_AGENT_LOG_LEVEL" not in os.environ:
+    os.environ["DATAPIZZA_AGENT_LOG_LEVEL"] = "WARN"
+
 def create_calendar_agent():
     api_key = os.getenv("GOOGLE_API_KEY")
     model = os.getenv("MODEL", "gemini-2.0-flash")
