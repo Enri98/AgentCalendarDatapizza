@@ -1,10 +1,21 @@
 import sqlite3
 import os
+from contextlib import nullcontext
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from datapizza.tools import tool
+from opentelemetry import trace
 
 ROME_TZ = ZoneInfo("Europe/Rome")
+
+def _tracing_enabled() -> bool:
+    return os.getenv("CALENDAR_TRACING", "").strip().lower() in {"1", "true"}
+
+def _span(name: str):
+    if not _tracing_enabled():
+        return nullcontext()
+    tracer = trace.get_tracer(__name__)
+    return tracer.start_as_current_span(name)
 
 def _get_db_path() -> str:
     return os.getenv("CALENDAR_DB_PATH", "./data/calendar.db")
@@ -33,20 +44,21 @@ def _pretty_time(iso_str: str) -> str:
     return dt.strftime("%a %b %d, %H:%M")
 
 def init_db() -> None:
-    with _connect() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                start_ts TEXT NOT NULL,
-                end_ts TEXT NOT NULL,
-                location TEXT,
-                notes TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )
-        """)
-        # One-time cleanup: removed DELETE to persist data across sessions
+    with _span("sqlite.init_db"):
+        with _connect() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    start_ts TEXT NOT NULL,
+                    end_ts TEXT NOT NULL,
+                    location TEXT,
+                    notes TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+            # One-time cleanup: removed DELETE to persist data across sessions
 
 def seed_db() -> None:
     with _connect() as conn:
@@ -74,14 +86,22 @@ def list_events(start_iso: str, end_iso: str) -> str:
     except ValueError:
         return "Error: Invalid ISO format for start or end time."
 
-    with _connect() as conn:
-        # Overlap logic: start_ts < end_iso AND end_ts > start_iso
-        rows = conn.execute("""
-            SELECT id, title, start_ts, end_ts, location 
-            FROM events 
-            WHERE start_ts < ? AND end_ts > ?
-            ORDER BY start_ts ASC
-        """, (e_norm, s_norm)).fetchall()
+    with _span("sqlite.list_events") as span:
+        if span is not None:
+            span.set_attribute("query_range_start", s_norm)
+            span.set_attribute("query_range_end", e_norm)
+
+        with _connect() as conn:
+            # Overlap logic: start_ts < end_iso AND end_ts > start_iso
+            rows = conn.execute("""
+                SELECT id, title, start_ts, end_ts, location 
+                FROM events 
+                WHERE start_ts < ? AND end_ts > ?
+                ORDER BY start_ts ASC
+            """, (e_norm, s_norm)).fetchall()
+
+        if span is not None:
+            span.set_attribute("rows_returned", len(rows))
         
         if not rows:
             return "No events found in this range."
@@ -118,12 +138,18 @@ def add_event(title: str, start_iso: str, end_iso: str, location: str = "", note
         return "Error: Invalid ISO format."
 
     now = datetime.now(ROME_TZ).isoformat()
-    with _connect() as conn:
-        cursor = conn.execute("""
-            INSERT INTO events (title, start_ts, end_ts, location, notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (title, start_iso_norm, end_iso_norm, location, notes, now, now))
-        event_id = cursor.lastrowid
+    with _span("sqlite.add_event") as span:
+        with _connect() as conn:
+            cursor = conn.execute("""
+                INSERT INTO events (title, start_ts, end_ts, location, notes, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (title, start_iso_norm, end_iso_norm, location, notes, now, now))
+            event_id = cursor.lastrowid
+            rows_affected = cursor.rowcount
+
+        if span is not None:
+            span.set_attribute("rows_affected", 1 if rows_affected == -1 else rows_affected)
+
         print(f"Created event {event_id} for {_pretty_time(start_iso_norm)}")
         return f"Event added successfully with ID: {event_id}"
 
@@ -155,39 +181,54 @@ def update_event(
     if not fields:
         return "Error: No fields provided for update."
 
-    with _connect() as conn:
-        event = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
-        if not event:
-            return f"Error: Event with ID {event_id} not found."
+    with _span("sqlite.update_event") as span:
+        with _connect() as conn:
+            event = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
+            if not event:
+                if span is not None:
+                    span.set_attribute("rows_affected", 0)
+                return f"Error: Event with ID {event_id} not found."
+                
+            new_start_iso = start_iso or event["start_ts"]
+            new_end_iso = end_iso or event["end_ts"]
             
-        new_start_iso = start_iso or event["start_ts"]
-        new_end_iso = end_iso or event["end_ts"]
-        
-        try:
-            dt_s = _parse_iso_rome(new_start_iso)
-            dt_e = _parse_iso_rome(new_end_iso)
-            if dt_s >= dt_e:
-                return "Error: Updated start time must be before updated end time."
-            
-            # Update fields with normalized strings if they were provided
-            if "start_iso" in fields: fields["start_iso"] = dt_s.isoformat()
-            if "end_iso" in fields: fields["end_iso"] = dt_e.isoformat()
-        except ValueError:
-            return "Error: Invalid ISO format in update."
+            try:
+                dt_s = _parse_iso_rome(new_start_iso)
+                dt_e = _parse_iso_rome(new_end_iso)
+                if dt_s >= dt_e:
+                    if span is not None:
+                        span.set_attribute("rows_affected", 0)
+                    return "Error: Updated start time must be before updated end time."
+                
+                # Update fields with normalized strings if they were provided
+                if "start_iso" in fields: fields["start_iso"] = dt_s.isoformat()
+                if "end_iso" in fields: fields["end_iso"] = dt_e.isoformat()
+            except ValueError:
+                if span is not None:
+                    span.set_attribute("rows_affected", 0)
+                return "Error: Invalid ISO format in update."
 
-        update_sqls = []
-        params = []
-        for k, v in fields.items():
-            col_name = k
-            if k == "start_iso": col_name = "start_ts"
-            if k == "end_iso": col_name = "end_ts"
-            update_sqls.append(f"{col_name} = ?")
-            params.append(v)
-        
-        params.append(datetime.now(ROME_TZ).isoformat())
-        params.append(event_id)
-        
-        conn.execute(f"UPDATE events SET {', '.join(update_sqls)}, updated_at = ? WHERE id = ?", params)
+            update_sqls = []
+            params = []
+            for k, v in fields.items():
+                col_name = k
+                if k == "start_iso": col_name = "start_ts"
+                if k == "end_iso": col_name = "end_ts"
+                update_sqls.append(f"{col_name} = ?")
+                params.append(v)
+            
+            params.append(datetime.now(ROME_TZ).isoformat())
+            params.append(event_id)
+            
+            cursor = conn.execute(
+                f"UPDATE events SET {', '.join(update_sqls)}, updated_at = ? WHERE id = ?",
+                params
+            )
+            rows_affected = cursor.rowcount
+
+        if span is not None:
+            span.set_attribute("rows_affected", 0 if rows_affected == -1 else rows_affected)
+
         print(f"Edited event {event_id}")
         return f"Event {event_id} updated successfully."
 
@@ -204,9 +245,16 @@ def delete_events(event_ids: list[int]) -> str:
     if not all(isinstance(i, int) for i in event_ids):
         return "Error: All IDs must be integers."
 
-    with _connect() as conn:
-        placeholders = ",".join("?" for _ in event_ids)
-        cursor = conn.execute(f"DELETE FROM events WHERE id IN ({placeholders})", event_ids)
+    with _span("sqlite.delete_events") as span:
+        with _connect() as conn:
+            placeholders = ",".join("?" for _ in event_ids)
+            cursor = conn.execute(f"DELETE FROM events WHERE id IN ({placeholders})", event_ids)
+            rows_affected = cursor.rowcount
+
+        if span is not None:
+            span.set_attribute("rows_affected", 0 if rows_affected == -1 else rows_affected)
+            span.set_attribute("event_ids_count", len(event_ids))
+
         print(f"Deleted event(s) {event_ids}")
-        return f"Deleted {cursor.rowcount} event(s). Attempted IDs: {event_ids}"
+        return f"Deleted {rows_affected} event(s). Attempted IDs: {event_ids}"
 

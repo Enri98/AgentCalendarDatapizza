@@ -19,6 +19,7 @@ It is a simple pet project that run an agent who will take care of your calendar
    - Copy `.env.example` to `.env`.
    - Add your `GOOGLE_API_KEY`.
    - *Note: Set `DATAPIZZA_LOG_LEVEL` and `DATAPIZZA_AGENT_LOG_LEVEL` to `INFO` or `DEBUG` in `.env` if you need detailed execution logs.*
+   - To see a per-turn Trace Summary in the console, set `CALENDAR_TRACING=1`.
 
 ## Running the App
 
