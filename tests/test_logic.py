@@ -21,7 +21,7 @@ def test_db_crud(temp_db):
     # List (verify we find it even with offset normalized strings)
     events = list_events("2026-02-10T00:00:00", "2026-02-11T00:00:00")
     assert "Test Event" in events
-    assert "+01:00" in events # Asserting offset is present
+    assert "Feb 10" in events # Asserting pretty date is present
     assert "[1]" in events
     
     # Update

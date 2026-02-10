@@ -27,6 +27,11 @@ def _parse_iso_rome(s: str) -> datetime:
         return dt.replace(tzinfo=ROME_TZ)
     return dt.astimezone(ROME_TZ)
 
+def _pretty_time(iso_str: str) -> str:
+    """Formats an ISO string into a human-readable date/time."""
+    dt = _parse_iso_rome(iso_str)
+    return dt.strftime("%a %b %d, %H:%M")
+
 def init_db() -> None:
     with _connect() as conn:
         conn.execute("""
@@ -84,8 +89,9 @@ def list_events(start_iso: str, end_iso: str) -> str:
         lines = []
         for r in rows:
             loc = f" @ {r['location']}" if r['location'] else ""
-            # Display normalized strings consistently
-            lines.append(f"[{r['id']}] {r['start_ts']}–{r['end_ts']} | {r['title']}{loc}")
+            start_p = _pretty_time(r['start_ts'])
+            end_p = _parse_iso_rome(r['end_ts']).strftime("%H:%M")
+            lines.append(f"[{r['id']}] {start_p}–{end_p} | {r['title']}{loc}")
         return "\n".join(lines)
 
 @tool
@@ -118,7 +124,7 @@ def add_event(title: str, start_iso: str, end_iso: str, location: str = "", note
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (title, start_iso_norm, end_iso_norm, location, notes, now, now))
         event_id = cursor.lastrowid
-        print(f"Created event {event_id} for {start_iso_norm}")
+        print(f"Created event {event_id} for {_pretty_time(start_iso_norm)}")
         return f"Event added successfully with ID: {event_id}"
 
 @tool

@@ -30,7 +30,8 @@ def create_calendar_agent():
         "2. Use tools for all CRUD operations (list, add, update, delete).\n"
         "3. If a time range or event ID is missing or ambiguous, ask a concise clarifying question.\n"
         "4. If the user refers to events by title for update/delete, first call list_events for the inferred range to obtain IDs; never guess IDs.\n"
-        "5. Be concise in your responses."
+        "5. Be concise in your responses.\n"
+        "6. Always format dates and times in a user-friendly, readable way (e.g., 'Tuesday, Feb 11 at 9:30 AM') in your final response. Never show the raw ISO 8601 timestamps to the user."
     )
     
     agent = Agent(
