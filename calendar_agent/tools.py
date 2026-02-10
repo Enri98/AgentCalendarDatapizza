@@ -7,15 +7,34 @@ from datapizza.tools import tool
 from opentelemetry import trace
 
 ROME_TZ = ZoneInfo("Europe/Rome")
+DB_REVISION = 0
+LIST_CACHE: dict[tuple[str, str, int], str] = {}
 
 def _tracing_enabled() -> bool:
     return os.getenv("CALENDAR_TRACING", "").strip().lower() in {"1", "true"}
+
+def _tool_cache_enabled() -> bool:
+    return os.getenv("CALENDAR_TOOL_CACHE_ENABLED", "1").strip().lower() in {"1", "true"}
+
+def _mark_cache_hit(layer: str) -> None:
+    if not _tracing_enabled():
+        return
+    span = trace.get_current_span()
+    if span is None:
+        return
+    span.set_attribute("cache.hit", True)
+    span.set_attribute("cache.layer", layer)
 
 def _span(name: str):
     if not _tracing_enabled():
         return nullcontext()
     tracer = trace.get_tracer(__name__)
     return tracer.start_as_current_span(name)
+
+def _invalidate_tool_cache() -> None:
+    global DB_REVISION, LIST_CACHE
+    DB_REVISION += 1
+    LIST_CACHE.clear()
 
 def _get_db_path() -> str:
     return os.getenv("CALENDAR_DB_PATH", "./data/calendar.db")
@@ -86,6 +105,14 @@ def list_events(start_iso: str, end_iso: str) -> str:
     except ValueError:
         return "Error: Invalid ISO format for start or end time."
 
+    cache_key = None
+    if _tool_cache_enabled():
+        cache_key = (s_norm, e_norm, DB_REVISION)
+        cached = LIST_CACHE.get(cache_key)
+        if cached is not None:
+            _mark_cache_hit("tool")
+            return cached
+
     with _span("sqlite.list_events") as span:
         if span is not None:
             span.set_attribute("query_range_start", s_norm)
@@ -104,7 +131,10 @@ def list_events(start_iso: str, end_iso: str) -> str:
             span.set_attribute("rows_returned", len(rows))
         
         if not rows:
-            return "No events found in this range."
+            result = "No events found in this range."
+            if cache_key is not None:
+                LIST_CACHE[cache_key] = result
+            return result
             
         lines = []
         for r in rows:
@@ -112,7 +142,10 @@ def list_events(start_iso: str, end_iso: str) -> str:
             start_p = _pretty_time(r['start_ts'])
             end_p = _parse_iso_rome(r['end_ts']).strftime("%H:%M")
             lines.append(f"[{r['id']}] {start_p}–{end_p} | {r['title']}{loc}")
-        return "\n".join(lines)
+        result = "\n".join(lines)
+        if cache_key is not None:
+            LIST_CACHE[cache_key] = result
+        return result
 
 @tool
 def add_event(title: str, start_iso: str, end_iso: str, location: str = "", notes: str = "") -> str:
@@ -150,6 +183,7 @@ def add_event(title: str, start_iso: str, end_iso: str, location: str = "", note
         if span is not None:
             span.set_attribute("rows_affected", 1 if rows_affected == -1 else rows_affected)
 
+        _invalidate_tool_cache()
         print(f"Created event {event_id} for {_pretty_time(start_iso_norm)}")
         return f"Event added successfully with ID: {event_id}"
 
@@ -229,6 +263,7 @@ def update_event(
         if span is not None:
             span.set_attribute("rows_affected", 0 if rows_affected == -1 else rows_affected)
 
+        _invalidate_tool_cache()
         print(f"Edited event {event_id}")
         return f"Event {event_id} updated successfully."
 
@@ -255,6 +290,7 @@ def delete_events(event_ids: list[int]) -> str:
             span.set_attribute("rows_affected", 0 if rows_affected == -1 else rows_affected)
             span.set_attribute("event_ids_count", len(event_ids))
 
+        _invalidate_tool_cache()
         print(f"Deleted event(s) {event_ids}")
         return f"Deleted {rows_affected} event(s). Attempted IDs: {event_ids}"
 

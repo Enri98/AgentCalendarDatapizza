@@ -4,6 +4,7 @@ from datapizza.clients.google import GoogleClient
 from datapizza.memory import Memory
 from datapizza.agents import Agent
 from .tools import list_events, add_event, update_event, delete_events
+from .cache import InMemoryLRUCache
 
 load_dotenv()
 
@@ -16,11 +17,18 @@ if "DATAPIZZA_AGENT_LOG_LEVEL" not in os.environ:
 def create_calendar_agent():
     api_key = os.getenv("GOOGLE_API_KEY")
     model = os.getenv("MODEL", "gemini-2.5-flash")
+    cache_enabled = os.getenv("CALENDAR_CLIENT_CACHE_ENABLED", "1").strip().lower() in {"1", "true"}
+    cache_size_raw = os.getenv("CALENDAR_CLIENT_CACHE_SIZE", "128")
+    try:
+        cache_size = int(cache_size_raw)
+    except ValueError:
+        cache_size = 128
+    client_cache = InMemoryLRUCache(maxsize=cache_size) if cache_enabled else None
     
     # if not api_key:
     #     pass
 
-    client = GoogleClient(api_key=api_key, model=model)
+    client = GoogleClient(api_key=api_key, model=model, cache=client_cache)
     memory = Memory()
     
     # system_prompt = (

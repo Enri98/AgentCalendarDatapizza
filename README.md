@@ -20,6 +20,7 @@ It is a simple pet project that run an agent who will take care of your calendar
    - Add your `GOOGLE_API_KEY`.
    - *Note: Set `DATAPIZZA_LOG_LEVEL` and `DATAPIZZA_AGENT_LOG_LEVEL` to `INFO` or `DEBUG` in `.env` if you need detailed execution logs.*
    - To see a per-turn Trace Summary in the console, set `CALENDAR_TRACING=1`.
+   - Cache controls are available via `CALENDAR_CLIENT_CACHE_ENABLED`, `CALENDAR_CLIENT_CACHE_SIZE`, and `CALENDAR_TOOL_CACHE_ENABLED`.
 
 ## Running the App
 
@@ -27,6 +28,10 @@ Run the REPL CLI:
 ```bash
 python -m calendar_agent
 ```
+
+## Caching
+- Client cache: an in-memory LRU attached to the Datapizza `GoogleClient`, reusing identical LLM calls within the same REPL session. Disable with `CALENDAR_CLIENT_CACHE_ENABLED=0` or adjust size with `CALENDAR_CLIENT_CACHE_SIZE`.
+- Tool cache: `list_events` results are cached per `(start_iso, end_iso, DB_REVISION)`. Any `add_event`, `update_event`, or `delete_events` increments `DB_REVISION` and clears the cache. Disable with `CALENDAR_TOOL_CACHE_ENABLED=0`.
 
 ## Rules
 - The assistant supports up to 15 conversation turns per session.
