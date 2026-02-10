@@ -15,12 +15,10 @@ if "DATAPIZZA_AGENT_LOG_LEVEL" not in os.environ:
 
 def create_calendar_agent():
     api_key = os.getenv("GOOGLE_API_KEY")
-    model = os.getenv("MODEL", "gemini-2.0-flash")
+    model = os.getenv("MODEL", "gemini-2.5-flash")
     
-    if not api_key:
-        # In a real app we might raise an error, but for scaffolding we'll allow it 
-        # to exist even if it will fail on run.
-        pass
+    # if not api_key:
+    #     pass
 
     client = GoogleClient(api_key=api_key, model=model)
     memory = Memory()

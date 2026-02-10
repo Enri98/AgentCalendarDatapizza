@@ -41,8 +41,7 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             )
         """)
-        # One-time cleanup: Delete all rows to ensure timezone consistency
-        conn.execute("DELETE FROM events")
+        # One-time cleanup: removed DELETE to persist data across sessions
 
 def seed_db() -> None:
     with _connect() as conn:
@@ -118,7 +117,9 @@ def add_event(title: str, start_iso: str, end_iso: str, location: str = "", note
             INSERT INTO events (title, start_ts, end_ts, location, notes, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """, (title, start_iso_norm, end_iso_norm, location, notes, now, now))
-        return f"Event added successfully with ID: {cursor.lastrowid}"
+        event_id = cursor.lastrowid
+        print(f"Created event {event_id} for {start_iso_norm}")
+        return f"Event added successfully with ID: {event_id}"
 
 @tool
 def update_event(
@@ -181,6 +182,7 @@ def update_event(
         params.append(event_id)
         
         conn.execute(f"UPDATE events SET {', '.join(update_sqls)}, updated_at = ? WHERE id = ?", params)
+        print(f"Edited event {event_id}")
         return f"Event {event_id} updated successfully."
 
 @tool
@@ -199,5 +201,6 @@ def delete_events(event_ids: list[int]) -> str:
     with _connect() as conn:
         placeholders = ",".join("?" for _ in event_ids)
         cursor = conn.execute(f"DELETE FROM events WHERE id IN ({placeholders})", event_ids)
+        print(f"Deleted event(s) {event_ids}")
         return f"Deleted {cursor.rowcount} event(s). Attempted IDs: {event_ids}"
 
