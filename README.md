@@ -29,6 +29,9 @@ Run the REPL CLI:
 python -m calendar_agent
 ```
 
+## Architecture
+- See `architecture.md` for a brief overview of the project layout and data flow.
+
 ## Caching
 - Client cache: an in-memory LRU attached to the Datapizza `GoogleClient`, reusing identical LLM calls within the same REPL session. Disable with `CALENDAR_CLIENT_CACHE_ENABLED=0` or adjust size with `CALENDAR_CLIENT_CACHE_SIZE`.
 - Tool cache: `list_events` results are cached per `(start_iso, end_iso, DB_REVISION)`. Any `add_event`, `update_event`, or `delete_events` increments `DB_REVISION` and clears the cache. Disable with `CALENDAR_TOOL_CACHE_ENABLED=0`.
@@ -39,3 +42,7 @@ python -m calendar_agent
 - Agent `max_steps` is set to 8.
 - Memory is reset each time the application is run.
 - Database is reserved at `./data/calendar.db`.
+
+## Tracing
+- Set `CALENDAR_TRACING=1` to print a per-turn trace summary.
+- The summary includes model token usage, tool timing, and cache token savings.

@@ -24,6 +24,8 @@ def _mark_cache_hit(layer: str) -> None:
         return
     span.set_attribute("cache.hit", True)
     span.set_attribute("cache.layer", layer)
+    if hasattr(span, "add_event") and getattr(span, "is_recording", lambda: False)():
+        span.add_event("cache.hit", {"cache.layer": layer})
 
 def _span(name: str):
     if not _tracing_enabled():

@@ -18,6 +18,33 @@ def _mark_cache_hit(layer: str) -> None:
         return
     span.set_attribute("cache.hit", True)
     span.set_attribute("cache.layer", layer)
+    if hasattr(span, "add_event") and getattr(span, "is_recording", lambda: False)():
+        span.add_event("cache.hit", {"cache.layer": layer})
+
+
+def _record_cache_savings(layer: str, value: Any) -> None:
+    if not _env_enabled("CALENDAR_TRACING", "0"):
+        return
+    span = trace.get_current_span()
+    if span is None or not getattr(span, "is_recording", lambda: False)():
+        return
+    usage = getattr(value, "usage", None)
+    if usage is None:
+        return
+    prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+    completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+    cached_tokens = int(getattr(usage, "cached_tokens", 0) or 0)
+    total_tokens = prompt_tokens + completion_tokens + cached_tokens
+    span.add_event(
+        "cache.hit",
+        {
+            "cache.layer": layer,
+            "cache.saved_prompt_tokens": prompt_tokens,
+            "cache.saved_completion_tokens": completion_tokens,
+            "cache.saved_cached_tokens": cached_tokens,
+            "cache.saved_total_tokens": total_tokens,
+        },
+    )
 
 
 class InMemoryLRUCache(Cache):
@@ -34,6 +61,7 @@ class InMemoryLRUCache(Cache):
         value = self._cache.pop(key)
         self._cache[key] = value
         _mark_cache_hit("client")
+        _record_cache_savings("client", value)
         return value
 
     def set(self, key: str, value: Any) -> None:
