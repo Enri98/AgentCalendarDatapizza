@@ -59,12 +59,11 @@ def create_calendar_agent():
     )
 
     structured_system_prompt = (
-        "You are a Calendar Assistant.\n"
-        "Output ONLY valid JSON with keys: mode, action, status, events, created_ids, updated_ids, deleted_ids, question, message.\n"
-        "Event fields: id, title, start, end, location, notes. Set mode=structured.\n"
-        "Use tools for all CRUD; never invent IDs.\n"
-        "If info is missing, set status=needs_clarification and ask ONE short question in question.\n"
-        "No markdown or extra text. Keep it short."
+        "Return ONLY JSON. mode='structured'. "
+        "Keys: mode,action,status,events,created_ids,updated_ids,deleted_ids,question,message. "
+        "events items: id,title,start,end,location,notes. "
+        "Tool-only CRUD. Never invent IDs. "
+        "If missing info: status='needs_clarification' and set question. No other text."
     )
 
     system_prompt = structured_system_prompt if structured else chat_system_prompt
@@ -79,5 +78,8 @@ def create_calendar_agent():
         system_prompt=system_prompt,
         tools=[list_events, add_event, update_event, delete_events]
     )
+
+    if not hasattr(agent, "memory") and not hasattr(agent, "_memory"):
+        agent._memory = memory
     
     return agent

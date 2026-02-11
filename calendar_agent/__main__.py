@@ -13,6 +13,13 @@ from .utils import env_truthy
 def _tracing_enabled() -> bool:
     return os.getenv("CALENDAR_TRACING", "").strip().lower() in {"1", "true"}
 
+def _clear_agent_memory(agent) -> None:
+    if hasattr(agent, "memory") and agent.memory:
+        agent.memory.clear()
+        return
+    if hasattr(agent, "_memory") and agent._memory:
+        agent._memory.clear()
+
 def main():
     init_db()
     seed_db()
@@ -26,7 +33,8 @@ def main():
     tracing_enabled = _tracing_enabled()
     tracer = trace.get_tracer(__name__) if tracing_enabled else None
     
-    max_turns = 15
+    max_turns = 2 if structured else 15
+    structured_turn_count = 0
     for turn in range(max_turns):
         try:
             user_input = input("\nUser: ").strip()
@@ -34,6 +42,8 @@ def main():
             break
             
         if user_input.lower() == "/exit":
+            if structured:
+                _clear_agent_memory(agent)
             print("Goodbye!")
             break
         
@@ -124,10 +134,17 @@ def main():
                 print(f"\n{response.text}")
             else:
                 print(f"\nAssistant: {response.text}")
+
+            if structured:
+                structured_turn_count += 1
+                if structured_turn_count >= 2:
+                    _clear_agent_memory(agent)
+                    print("Structured mode limit reached (2 turns). Memory cleared. Restart session for more.")
+                    break
         except Exception as e:
             print(f"\nError: {e}")
     else:
-        print("\nMax conversation turns (15) reached. Ending session.")
+        print(f"\nMax conversation turns ({max_turns}) reached. Ending session.")
 
 
 if __name__ == "__main__":

@@ -33,6 +33,7 @@ python -m calendar_agent
 ## Structured Output Mode
 - Set `CALENDAR_STRUCTURED_OUTPUT=1` to force the assistant final output to be JSON only (stable schema).
 - In structured mode, tool outputs are JSON and event `start`/`end` are ISO 8601 strings with offset.
+- Structured mode is limited to 2 user turns per session; memory is cleared after the second turn and the REPL exits.
 
 ## Architecture
 - See `architecture.md` for a brief overview of the project layout and data flow.
