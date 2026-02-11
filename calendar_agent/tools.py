@@ -1,14 +1,17 @@
 import sqlite3
 import os
+import json
 from contextlib import nullcontext
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from datapizza.tools import tool
 from opentelemetry import trace
+from .utils import env_truthy
 
 ROME_TZ = ZoneInfo("Europe/Rome")
 DB_REVISION = 0
 LIST_CACHE: dict[tuple[str, str, int], str] = {}
+STRUCTURED = env_truthy("CALENDAR_STRUCTURED_OUTPUT", "0")
 
 def _tracing_enabled() -> bool:
     return os.getenv("CALENDAR_TRACING", "").strip().lower() in {"1", "true"}
@@ -63,6 +66,17 @@ def _pretty_time(iso_str: str) -> str:
     """Formats an ISO string into a human-readable date/time."""
     dt = _parse_iso_rome(iso_str)
     return dt.strftime("%a %b %d, %H:%M")
+
+def _event_row_to_dict(row: sqlite3.Row) -> dict:
+    notes = row["notes"] if "notes" in row.keys() else None
+    return {
+        "id": int(row["id"]),
+        "title": row["title"],
+        "start": _parse_iso_rome(row["start_ts"]).isoformat(),
+        "end": _parse_iso_rome(row["end_ts"]).isoformat(),
+        "location": row["location"] if row["location"] else None,
+        "notes": notes,
+    }
 
 def init_db() -> None:
     with _span("sqlite.init_db"):
@@ -123,7 +137,7 @@ def list_events(start_iso: str, end_iso: str) -> str:
         with _connect() as conn:
             # Overlap logic: start_ts < end_iso AND end_ts > start_iso
             rows = conn.execute("""
-                SELECT id, title, start_ts, end_ts, location 
+                SELECT id, title, start_ts, end_ts, location, notes
                 FROM events 
                 WHERE start_ts < ? AND end_ts > ?
                 ORDER BY start_ts ASC
@@ -132,6 +146,17 @@ def list_events(start_iso: str, end_iso: str) -> str:
         if span is not None:
             span.set_attribute("rows_returned", len(rows))
         
+        if STRUCTURED:
+            result_obj = {
+                "events": [_event_row_to_dict(r) for r in rows],
+                "start": s_norm,
+                "end": e_norm,
+            }
+            result = json.dumps(result_obj, separators=(",", ":"))
+            if cache_key is not None:
+                LIST_CACHE[cache_key] = result
+            return result
+
         if not rows:
             result = "No events found in this range."
             if cache_key is not None:
@@ -187,6 +212,8 @@ def add_event(title: str, start_iso: str, end_iso: str, location: str = "", note
 
         _invalidate_tool_cache()
         print(f"Created event {event_id} for {_pretty_time(start_iso_norm)}")
+        if STRUCTURED:
+            return json.dumps({"created_id": event_id}, separators=(",", ":"))
         return f"Event added successfully with ID: {event_id}"
 
 @tool
@@ -267,6 +294,8 @@ def update_event(
 
         _invalidate_tool_cache()
         print(f"Edited event {event_id}")
+        if STRUCTURED:
+            return json.dumps({"updated_id": event_id}, separators=(",", ":"))
         return f"Event {event_id} updated successfully."
 
 @tool
@@ -294,5 +323,10 @@ def delete_events(event_ids: list[int]) -> str:
 
         _invalidate_tool_cache()
         print(f"Deleted event(s) {event_ids}")
+        if STRUCTURED:
+            return json.dumps(
+                {"deleted_ids": list(event_ids), "deleted_count": rows_affected},
+                separators=(",", ":"),
+            )
         return f"Deleted {rows_affected} event(s). Attempted IDs: {event_ids}"
 

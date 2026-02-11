@@ -8,6 +8,7 @@ from opentelemetry import trace
 from .agent import create_calendar_agent
 from .telemetry import render_turn_summary, summarize_spans
 from .tools import init_db, seed_db, _get_db_path
+from .utils import env_truthy
 
 def _tracing_enabled() -> bool:
     return os.getenv("CALENDAR_TRACING", "").strip().lower() in {"1", "true"}
@@ -15,6 +16,7 @@ def _tracing_enabled() -> bool:
 def main():
     init_db()
     seed_db()
+    structured = env_truthy("CALENDAR_STRUCTURED_OUTPUT", "0")
     
     print("--- Calendar Assistant REPL ---")
     print("Type your request or '/exit' to quit.")
@@ -118,7 +120,10 @@ def main():
                 context = f"[CURRENT_TIME_ROME={now_rome.isoformat()}] "
                 response = agent.run(context + user_input)
 
-            print(f"\nAssistant: {response.text}")
+            if structured:
+                print(f"\n{response.text}")
+            else:
+                print(f"\nAssistant: {response.text}")
         except Exception as e:
             print(f"\nError: {e}")
     else:

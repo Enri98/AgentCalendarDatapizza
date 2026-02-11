@@ -21,6 +21,7 @@ It is a simple pet project that run an agent who will take care of your calendar
    - *Note: Set `DATAPIZZA_LOG_LEVEL` and `DATAPIZZA_AGENT_LOG_LEVEL` to `INFO` or `DEBUG` in `.env` if you need detailed execution logs.*
    - To see a per-turn Trace Summary in the console, set `CALENDAR_TRACING=1`.
    - Cache controls are available via `CALENDAR_CLIENT_CACHE_ENABLED`, `CALENDAR_CLIENT_CACHE_SIZE`, and `CALENDAR_TOOL_CACHE_ENABLED`.
+   - Structured output (JSON-only) is available via `CALENDAR_STRUCTURED_OUTPUT=1` (accepts `1`, `true`, `yes`).
 
 ## Running the App
 
@@ -28,6 +29,10 @@ Run the REPL CLI:
 ```bash
 python -m calendar_agent
 ```
+
+## Structured Output Mode
+- Set `CALENDAR_STRUCTURED_OUTPUT=1` to force the assistant final output to be JSON only (stable schema).
+- In structured mode, tool outputs are JSON and event `start`/`end` are ISO 8601 strings with offset.
 
 ## Architecture
 - See `architecture.md` for a brief overview of the project layout and data flow.
@@ -46,3 +51,13 @@ python -m calendar_agent
 ## Tracing
 - Set `CALENDAR_TRACING=1` to print a per-turn trace summary.
 - The summary includes model token usage, tool timing, and cache token savings.
+
+## Testing
+1. Activate the virtual environment:
+   ```bash
+   .venv\Scripts\activate
+   ```
+2. Run the test suite:
+   ```bash
+   pytest
+   ```
